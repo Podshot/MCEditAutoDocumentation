@@ -6,7 +6,19 @@ import shutil
 import urllib2
 import subprocess
 
-resources = ['Items', 'terrain.png']
+resources = [
+             'Items', 
+             'terrain.png', 
+             'pymclevel{}pc_blockstates.json'.format(os.path.sep),
+             'pymclevel{}pe_blockstates.json'.format(os.path.sep)
+             ]
+
+if '--release' in sys.argv:
+    RELEASE = sys.argv[sys.argv.index('--release') + 1]
+    MASTER_REPO = "MCEdit-Unified-" + RELEASE
+else:
+    RELEASE = None
+    MASTER_REPO = "MCEdit-Unified-master"
     
 def ignore_function(ignore):
     def _ignore_(path, names):
@@ -21,7 +33,10 @@ def get_repo(branch, target_path=".", temp_path="temp"):
     if not os.path.exists(temp_path):
         os.mkdir(temp_path)
     
-    url = "http://github.com/Khroki/MCEdit-Unified/archive/{}.zip".format(branch)
+    if '--release' in sys.argv and branch == "master":
+        url = "http://github.com/Khroki/MCEdit-Unified/archive/{}.zip".format(RELEASE)
+    else:
+        url = "http://github.com/Khroki/MCEdit-Unified/archive/{}.zip".format(branch)
     file_name = url.split('/')[-1]
     download_path = os.path.join(temp_path, file_name)
     
@@ -60,57 +75,81 @@ def get_repo(branch, target_path=".", temp_path="temp"):
         
     fp.close()
     print "\n== Downloaded: %s ==" % (file_name)
+    print ""
     print "== Unzipping: %s ==" % (file_name)
     zip_handler = zipfile.ZipFile(download_path, "r")
     zip_handler.extractall(target_path)
     print "== Unzipped: %s ==" % (file_name)
+    print ""
 
 def single_main():
-    get_new_soruces = (raw_input("Get newest source? (Y/N): ").lower() == 'y')
+    get_new_sources = (raw_input("Get newest source? (Y/N): ").lower() == 'y')
     do_cleanup = (raw_input("Cleanup files? (Y/N): ").lower() == 'y')
     start_time = time.time()
     base_dir = os.path.dirname(os.path.abspath(__file__))
     
-    if get_new_soruces:
+    if get_new_sources: # Grab newest source
         get_repo("master")
         get_repo("gh-pages")
         get_repo("Docs")
+        
+    # Initialize the gh-pages repository
+    print "== Initializing the gh-pages local repository =="
+    os.chdir(os.path.join(base_dir, "MCEdit-Unified-gh-pages"))
+    subprocess.call(["git", "init"])
+    subprocess.call(["git", "remote", "add", "origin", "https://github.com/Khroki/MCEdit-Unified.git"])
+    subprocess.call(["git", "fetch", "--depth=5"])
+    subprocess.call(["git", "checkout", "-f", "--track", "origin/gh-pages"])
+    subprocess.call(["git", "pull", "origin", "gh-pages"])
+    os.chdir(base_dir)
+    print "== Initialized the gh-pages local repository =="
+    print ""
+    
     
     for resource in resources:
-        res = os.path.join(base_dir, "MCEdit-Unified-master", resource)
+        res = os.path.join(base_dir, MASTER_REPO, resource)
         dest = os.path.join(base_dir, "MCEdit-Unified-Docs", "docs", resource)
         if os.path.isdir(res):
             if os.path.exists(dest):
                 shutil.rmtree(dest)
             shutil.copytree(res, dest)
         elif os.path.isfile(res):
+            if not os.path.exists(os.path.dirname(dest)):
+                os.makedirs(os.path.dirname(dest))
             if os.path.exists(dest):
                 os.remove(dest)
             shutil.copyfile(res, dest)
     
-    if os.path.exists(os.path.join(base_dir, "MCEdit-Unified-master", "docs")):
-        shutil.rmtree(os.path.join(base_dir, "MCEdit-Unified-master", "docs"))        
-    shutil.copytree(os.path.join(base_dir, "MCEdit-Unified-Docs", "docs"), os.path.join(base_dir, "MCEdit-Unified-master", "docs"), ignore=ignore_function([".gitignore", ".gitattributes", ".gitmodules"]))
+    if os.path.exists(os.path.join(base_dir, MASTER_REPO, "docs")):
+        shutil.rmtree(os.path.join(base_dir, MASTER_REPO, "docs"))        
+    shutil.copytree(os.path.join(base_dir, "MCEdit-Unified-Docs", "docs"), os.path.join(base_dir, MASTER_REPO, "docs"), ignore=ignore_function([".gitignore", ".gitattributes", ".gitmodules"]))
     print "== Making Documentation =="
-    os.chdir(os.path.join(base_dir, "MCEdit-Unified-master", "docs"))
+    os.chdir(os.path.join(base_dir, MASTER_REPO, "docs"))
+    if os.path.exists(os.path.join(base_dir, "MCEdit-Unified-gh-pages", "docs")):
+        shutil.rmtree(os.path.join(base_dir, "MCEdit-Unified-gh-pages", "docs"))
     
     subprocess.call([make, "html"])
     
     time.sleep(2.5)
-    shutil.rmtree(os.path.join(base_dir, "MCEdit-Unified-gh-pages", "docs"))
-    shutil.copytree(os.path.join(base_dir, "MCEdit-Unified-master", "docs", "_build", "html"), os.path.join(base_dir, "MCEdit-Unified-gh-pages", "docs"))
+    shutil.copytree(os.path.join(base_dir, MASTER_REPO, "docs", "_build", "html"), os.path.join(base_dir, "MCEdit-Unified-gh-pages", "docs"))
     
     os.chdir(base_dir)
     
-    shutil.rmtree(os.path.join(".", "temp"))
+    if do_cleanup:
+        shutil.rmtree(os.path.join(".", "temp"))
     time.sleep(10)
     if do_cleanup:
-        for _dir in ["master", "Docs"]:
-            shutil.rmtree(os.path.join(".", "MCEdit-Unified-{}".format(_dir)))
-        print "The 'MCEdit-Unified-gh-pages' directory has been left intact for review of the documentation"
+        for _dir in ["master", "Docs", RELEASE]:
+            if os.path.exists(os.path.join(".", "MCEdit-Unified-{}".format(_dir))):
+                shutil.rmtree(os.path.join(".", "MCEdit-Unified-{}".format(_dir)))
     
     delta_time = time.time() - start_time
+    print ""
+    print ""
     print "Total build time took %.3f seconds" % (delta_time)
+    print ""
+    print "The 'MCEdit-Unified-gh-pages' directory has been left intact for review of the documentation"
+    print "If you use SSH, you will need to create a new remote with the SSH URL and push to it"
 
 if __name__ == "__main__":
     plat = sys.platform
